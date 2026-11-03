@@ -73,6 +73,15 @@ input{font:inherit;color:var(--ink);min-width:0}
 .row b i{font-style:normal;font-weight:400;font-size:12px;color:var(--mute)}
 .row small{display:block;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .bd{background:var(--accent);color:var(--on);border-radius:12px;min-width:24px;height:24px;display:grid;place-items:center;font-size:13px;font-weight:600;padding:0 7px}
+.bd.req{background:#ff9a3d}
+.row.pend{opacity:.85}
+.reqbar{margin:0 16px 10px;padding:12px 14px;background:var(--panel);border-radius:18px;box-shadow:0 2px 10px rgba(20,60,110,.06);display:flex;flex-direction:column;gap:8px}
+.reqbar b{font-size:14px}
+.reqbtns{display:flex;gap:8px}
+.reqbtns button{flex:1;border:0;border-radius:12px;padding:9px;font-weight:600}
+.reqbtns .acc{background:linear-gradient(135deg,var(--accent),var(--acc2));color:#fff}
+.reqbtns .dec{background:var(--bg)}
+.waitbar{position:absolute;left:12px;right:12px;bottom:12px;padding:14px;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-radius:24px;box-shadow:var(--shadow);text-align:center;color:var(--mute);font-size:14px}
 .empt{color:var(--mute);text-align:center;padding:30px 10px;font-size:14px}
 .fab{position:absolute;right:20px;bottom:20px;width:60px;height:60px;border-radius:50%;border:0;background:linear-gradient(135deg,var(--accent),var(--acc2));color:#fff;display:grid;place-items:center;box-shadow:0 10px 24px rgba(124,92,255,.45);z-index:3}
 .fab svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round}
@@ -202,6 +211,7 @@ input{font:inherit;color:var(--ink);min-width:0}
   </div>
   <div class="hi"><h1>Chats</h1><p id="hello"></p></div>
   <div class="find"><input class="fld" id="q" placeholder="Search chats" style="padding:10px 16px;border-radius:20px"></div>
+  <div id="reqs"></div>
   <div id="list"></div>
   <button class="fab" id="fab" aria-label="New chat"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
  </aside>
@@ -216,6 +226,8 @@ input{font:inherit;color:var(--ink);min-width:0}
    </div>
    <div class="msgs" id="msgs"></div>
    <div class="rep" id="rep" hidden></div>
+   <div class="reqbar" id="reqbar" hidden><b id="reqtxt"></b><div class="reqbtns"><button class="dec" id="reqDec">Decline</button><button class="acc" id="reqAcc">Accept</button></div></div>
+   <div class="waitbar" id="waitbar" hidden>Waiting for them to accept your chat request</div>
    <div class="bar" id="bar">
     <button class="ib g" id="pic" aria-label="Send a photo"><svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
     <input type="file" id="file" accept="image/*" hidden>
@@ -245,7 +257,7 @@ input{font:inherit;color:var(--ink);min-width:0}
 import {firebaseConfig} from "./firebase-config.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged,sendPasswordResetEmail,updateEmail} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteField,addDoc,collection,query,where,orderBy,limit,onSnapshot} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,deleteField,addDoc,collection,query,where,orderBy,limit,onSnapshot} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $=id=>document.getElementById(id);
 const D="@batcheet.app";
@@ -357,27 +369,36 @@ async function nameOf(id){
 }
 function prevOf(m){if(m.del)return "This message was deleted";return m.k==="t"?m.v:m.k==="i"?"\u{1F4F7} Photo":"\u{1F3A4} Voice message"}
 function drawList(){
- const L=$("list"),qv=($("q").value||"").trim().toLowerCase();
- L.innerHTML="";
+ const L=$("list"),R=$("reqs"),qv=($("q").value||"").trim().toLowerCase();
+ L.innerHTML="";R.innerHTML="";
  const key=p=>(links[p].pins&&links[p].pins[me.id]?1e15:0)+(links[p].lt||0);
- const keys=Object.keys(links).filter(p=>links[p].last||p===cur).sort((a,b)=>key(b)-key(a));
- if(!keys.length){L.innerHTML='<div class="empt">No chats yet. Tap + to start one.</div>';return}
+ const incoming=Object.keys(links).filter(p=>links[p].status==="pending"&&links[p].requestedBy&&links[p].requestedBy!==me.id);
+ incoming.forEach(p=>{
+  const l=links[p],o=other(l),n=names[o]||up(o);nameOf(o);
+  const b=document.createElement("button");b.className="row pend";
+  b.innerHTML='<div class="av"></div><div class="tx"><b><span></span><i class="bd req">New</i></b><small>Wants to chat with you</small></div>';
+  paint(b.firstChild,n,photos[o]);b.querySelector("span").textContent=n;
+  b.onclick=()=>openChat(p);R.appendChild(b);
+ });
+ const keys=Object.keys(links).filter(p=>!incoming.includes(p)).filter(p=>links[p].last||links[p].status||p===cur).sort((a,b)=>key(b)-key(a));
+ if(!keys.length&&!incoming.length){L.innerHTML='<div class="empt">No chats yet. Tap + to start one.</div>';return}
  let shown=0;
  keys.forEach(p=>{
   const l=links[p],o=other(l),n=names[o]||up(o);nameOf(o);
   if(qv&&!n.toLowerCase().includes(qv))return;
   shown++;
   const un=(msgs[p]||[]).filter(m=>m.to===me.id&&(m.s||1)<3&&!m.del).length;
-  const b=document.createElement("button");b.className="row"+(p===cur?" on":"");
+  const pendOwn=l.status==="pending"&&l.requestedBy===me.id;
+  const b=document.createElement("button");b.className="row"+(p===cur?" on":"")+(pendOwn?" pend":"");
   b.innerHTML='<div class="av'+(l.online&&l.online[o]?" o":"")+'"></div><div class="tx"><b><span></span><i></i></b><small></small></div>';
   paint(b.firstChild,n,photos[o]);
   b.querySelector("span").textContent=(l.pins&&l.pins[me.id]?"\u{1F4CC} ":"")+n;
   b.querySelector("i").textContent=l.lt?hm(l.lt):"";
-  b.querySelector("small").textContent=l.last||"New chat";
+  b.querySelector("small").textContent=pendOwn?"Request sent \u00B7 waiting for approval":(l.last||"New chat");
   if(un){const u=document.createElement("span");u.className="bd";u.textContent=un;b.appendChild(u)}
   b.onclick=()=>openChat(p);L.appendChild(b);
  });
- if(!shown)L.innerHTML='<div class="empt">No chats match your search.</div>';
+ if(!shown&&!incoming.length)L.innerHTML='<div class="empt">No chats match your search.</div>';
 }
 function head(){
  const l=links[cur],o=other(l),n=names[o]||up(o);
@@ -388,7 +409,26 @@ function openChat(p){
  cur=p;rp=null;ed=null;$("rep").hidden=true;
  $("app").classList.add("open");$("empty").hidden=true;$("pane").hidden=false;
  $("msgs").innerHTML='<div class="chip">Conversation</div>';head();watch(p);drawMsgs();ack(p);drawList();
+ reqUI();
 }
+function reqUI(){
+ const l=links[cur];if(!l)return;
+ const pending=l.status==="pending",mine=l.requestedBy===me.id;
+ $("bar").hidden=pending;
+ $("reqbar").hidden=!(pending&&!mine);
+ $("waitbar").hidden=!(pending&&mine);
+ if(pending&&!mine){
+  const o=other(l),n=names[o]||up(o);
+  $("reqtxt").textContent=n+" wants to start a chat with you";
+ }
+}
+$("reqAcc").onclick=()=>{if(!cur)return;updateDoc(doc(db,"chats",cur),{status:"active"}).then(()=>{links[cur].status="active";reqUI();drawList()}).catch(()=>toast("Could not accept"))};
+$("reqDec").onclick=async()=>{
+ if(!cur)return;const p=cur;
+ try{await deleteDoc(doc(db,"chats",p))}catch(e){}
+ delete links[p];cur=null;
+ $("app").classList.remove("open");$("pane").hidden=true;$("empty").hidden=false;drawList();
+};
 $("back").onclick=()=>{$("app").classList.remove("open");cur=null;$("pane").hidden=true;$("empty").hidden=false;drawList()};
 function status(t){const s=$("hs");s.textContent=t;s.className=t==="typing..."?"ty":""}
 
@@ -446,6 +486,7 @@ $("txt").oninput=()=>{
 async function sendMsg(k,v){
  if(!cur)return;
  const l=links[cur],to=other(l);
+ if(l.status==="pending")return toast("They need to accept your request first");
  if(l.blockedBy&&(l.blockedBy.includes(to)||l.blockedBy.includes(me.id)))return toast("This contact is blocked");
  const t=Date.now(),m={from:me.id,to,k,v,t,s:1};
  if(rp){m.replyTo=rp.text;rp=null;$("rep").hidden=true}
@@ -549,7 +590,7 @@ $("newgo").onclick=async()=>{
   if(!d.exists())return toast("That Login ID was not found");
   names[id]=d.data().name;photos[id]=d.data().photo;const p=pk(me.id,id);
   if(!links[p]){
-   const linkData={members:[me.id,id].sort(),last:"",lt:Date.now()};
+   const linkData={members:[me.id,id].sort(),last:"",lt:Date.now(),status:"pending",requestedBy:me.id};
    await setDoc(doc(db,"chats",p),linkData,{merge:true});
    links[p]=linkData;
   }

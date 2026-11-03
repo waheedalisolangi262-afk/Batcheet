@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function me() { return request.auth.token.email.split('@')[0]; }
+    function inPair(pair) { return request.auth != null && me() in pair.split('_'); }
+    function chatActive(pair) {
+      return get(/databases/$(database)/documents/chats/$(pair)).data.status == 'active';
+    }
+
+    match /users/{id} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && id == me();
+    }
+    match /chats/{pair} {
+      allow read, write: if inPair(pair);
+      match /msgs/{m} {
+        allow read: if inPair(pair);
+        allow create: if inPair(pair) && request.resource.data.from == me() && chatActive(pair);
+        allow update: if inPair(pair);
+      }
+    }
+    match /reports/{r} {
+      allow create: if request.auth != null && request.resource.data.by == me();
+      allow read, update, delete: if false;
+    }
+  }
+}
