@@ -548,7 +548,11 @@ $("newgo").onclick=async()=>{
   const d=await getDoc(doc(db,"users",id));
   if(!d.exists())return toast("That Login ID was not found");
   names[id]=d.data().name;photos[id]=d.data().photo;const p=pk(me.id,id);
-  if(!links[p])await setDoc(doc(db,"chats",p),{members:[me.id,id].sort(),last:"",lt:Date.now()},{merge:true});
+  if(!links[p]){
+   const linkData={members:[me.id,id].sort(),last:"",lt:Date.now()};
+   await setDoc(doc(db,"chats",p),linkData,{merge:true});
+   links[p]=linkData;
+  }
   $("nid").value="";sheetOpen(false);openChat(p);
  }catch(e){toast("Could not look up that ID")}
 };
