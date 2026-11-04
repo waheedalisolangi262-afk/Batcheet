@@ -74,6 +74,18 @@ input{font:inherit;color:var(--ink);min-width:0}
 .row small{display:block;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .bd{background:var(--accent);color:var(--on);border-radius:12px;min-width:24px;height:24px;display:grid;place-items:center;font-size:13px;font-weight:600;padding:0 7px}
 .bd.req{background:#ff9a3d}
+.bell{position:relative}
+.bellbd{position:absolute;top:-2px;right:-2px;background:#ff9a3d;color:#fff;border-radius:9px;min-width:17px;height:17px;font-size:10px;display:grid;place-items:center;padding:0 4px;font-weight:700}
+.found{display:flex;align-items:center;gap:12px;background:var(--bg);border-radius:16px;padding:12px}
+.found .tx{flex:1;min-width:0;font-weight:600}
+.reqrow{display:flex;align-items:center;gap:12px;background:var(--bg);border-radius:16px;padding:10px 12px}
+.reqrow .tx{flex:1;min-width:0}
+.reqrow .tx b{display:block}
+.reqrow .tx small{color:var(--mute)}
+.reqrow .mini{display:flex;gap:6px}
+.reqrow .mini button{border:0;border-radius:10px;padding:7px 10px;font-size:13px;font-weight:600}
+.reqrow .mini .acc{background:linear-gradient(135deg,var(--accent),var(--acc2));color:#fff}
+.reqrow .mini .dec{background:var(--panel)}
 .row.pend{opacity:.85}
 .reqbar{margin:0 16px 10px;padding:12px 14px;background:var(--panel);border-radius:18px;box-shadow:0 2px 10px rgba(20,60,110,.06);display:flex;flex-direction:column;gap:8px}
 .reqbar b{font-size:14px}
@@ -204,6 +216,7 @@ input{font:inherit;color:var(--ink);min-width:0}
   <div class="top">
    <div class="brand sm"><i class="mk"><svg viewBox="0 0 24 24" fill="#fff"><path d="M4 4h16a2 2 0 012 2v10a2 2 0 01-2 2H9l-5 4v-4a2 2 0 01-2-2V6a2 2 0 012-2z" transform="translate(0 -1)"/><circle cx="8" cy="10.5" r="1.4" fill="#7c5cff"/><circle cx="12" cy="10.5" r="1.4" fill="#7c5cff"/><circle cx="16" cy="10.5" r="1.4" fill="#7c5cff"/></svg></i>Bat Cheet</div>
    <div style="display:flex;gap:8px">
+    <button class="ib bell" id="bell" aria-label="Friend requests"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0112 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 003.4 0"/></svg><span class="bellbd" id="bellbd" hidden></span></button>
     <button class="ib" id="prof" aria-label="Profile"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/></svg></button>
     <button class="ib" id="theme" aria-label="Light or dark"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg></button>
     <button class="ib" id="out" aria-label="Logout"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
@@ -240,10 +253,11 @@ input{font:inherit;color:var(--ink);min-width:0}
  </section>
  <div class="sbg" id="sbg"></div>
  <div class="sheet" id="sheet">
-  <h3>New chat</h3>
+  <h3>Add a friend</h3>
   <p>Enter a friend's Login ID, e.g. BC204118</p>
   <input class="fld" id="nid" placeholder="Friend's Login ID" autocapitalize="characters">
-  <button class="btn" id="newgo">Open chat</button>
+  <button class="btn" id="newgo">Search</button>
+  <div id="foundBox"></div>
  </div>
  <div class="sheet" id="gs"></div>
 </div>
@@ -373,6 +387,7 @@ function drawList(){
  L.innerHTML="";R.innerHTML="";
  const key=p=>(links[p].pins&&links[p].pins[me.id]?1e15:0)+(links[p].lt||0);
  const incoming=Object.keys(links).filter(p=>links[p].status==="pending"&&links[p].requestedBy&&links[p].requestedBy!==me.id);
+ const bb=$("bellbd");if(incoming.length){bb.hidden=false;bb.textContent=incoming.length}else bb.hidden=true;
  incoming.forEach(p=>{
   const l=links[p],o=other(l),n=names[o]||up(o);nameOf(o);
   const b=document.createElement("button");b.className="row pend";
@@ -422,12 +437,31 @@ function reqUI(){
   $("reqtxt").textContent=n+" wants to start a chat with you";
  }
 }
-$("reqAcc").onclick=()=>{if(!cur)return;updateDoc(doc(db,"chats",cur),{status:"active"}).then(()=>{links[cur].status="active";reqUI();drawList()}).catch(()=>toast("Could not accept"))};
-$("reqDec").onclick=async()=>{
- if(!cur)return;const p=cur;
+function acceptReq(p){
+ updateDoc(doc(db,"chats",p),{status:"active"}).then(()=>{if(links[p])links[p].status="active";if(p===cur)reqUI();drawList();toast("Request accepted")}).catch(()=>toast("Could not accept"));
+}
+async function declineReq(p){
  try{await deleteDoc(doc(db,"chats",p))}catch(e){}
- delete links[p];cur=null;
- $("app").classList.remove("open");$("pane").hidden=true;$("empty").hidden=false;drawList();
+ delete links[p];
+ if(p===cur){cur=null;$("app").classList.remove("open");$("pane").hidden=true;$("empty").hidden=false}
+ drawList();
+}
+$("reqAcc").onclick=()=>{if(cur)acceptReq(cur)};
+$("reqDec").onclick=()=>{if(cur)declineReq(cur)};
+$("bell").onclick=()=>{
+ const incoming=Object.keys(links).filter(p=>links[p].status==="pending"&&links[p].requestedBy&&links[p].requestedBy!==me.id);
+ const g=G('<h3>Friend requests</h3><div class="ac" id="reqlist"></div>');
+ const box=g.querySelector("#reqlist");
+ if(!incoming.length)box.innerHTML='<p style="margin:0;color:var(--mute)">No pending requests right now.</p>';
+ incoming.forEach(p=>{
+  const l=links[p],o=other(l),n=names[o]||up(o);nameOf(o);
+  const row=document.createElement("div");row.className="reqrow";
+  row.innerHTML='<div class="av"></div><div class="tx"><b></b><small>wants to chat with you</small></div><div class="mini"><button class="dec">Decline</button><button class="acc">Accept</button></div>';
+  paint(row.querySelector(".av"),n,photos[o]);row.querySelector("b").textContent=n;
+  row.querySelector(".acc").onclick=()=>{acceptReq(p);closeG()};
+  row.querySelector(".dec").onclick=()=>{declineReq(p);closeG()};
+  box.appendChild(row);
+ });
 };
 $("back").onclick=()=>{$("app").classList.remove("open");cur=null;$("pane").hidden=true;$("empty").hidden=false;drawList()};
 function status(t){const s=$("hs");s.textContent=t;s.className=t==="typing..."?"ty":""}
@@ -583,18 +617,34 @@ const sheetOpen=o=>{$("app").classList.toggle("sh",o);if(o)setTimeout(()=>$("nid
 $("fab").onclick=()=>sheetOpen(true);
 $("sbg").onclick=()=>{sheetOpen(false);closeG()};
 $("newgo").onclick=async()=>{
- const id=$("nid").value.trim().toLowerCase();if(!id)return;
+ const id=$("nid").value.trim().toLowerCase();const fb=$("foundBox");fb.innerHTML="";
+ if(!id)return;
  if(id===me.id)return toast("That's your own ID");
  try{
   const d=await getDoc(doc(db,"users",id));
   if(!d.exists())return toast("That Login ID was not found");
-  names[id]=d.data().name;photos[id]=d.data().photo;const p=pk(me.id,id);
-  if(!links[p]){
-   const linkData={members:[me.id,id].sort(),last:"",lt:Date.now(),status:"pending",requestedBy:me.id};
-   await setDoc(doc(db,"chats",p),linkData,{merge:true});
-   links[p]=linkData;
+  const n=d.data().name,ph=d.data().photo;names[id]=n;photos[id]=ph;
+  const p=pk(me.id,id),l=links[p];
+  const card=document.createElement("div");card.className="found";
+  card.innerHTML='<div class="av"></div><div class="tx"></div>';
+  paint(card.firstChild,n,ph);card.querySelector(".tx").textContent=n;
+  const btn=document.createElement("button");btn.className="btn";btn.style.width="auto";
+  if(l&&l.status==="active"){
+   btn.textContent="Message";
+   btn.onclick=()=>{sheetOpen(false);openChat(p)};
+  }else if(l&&l.status==="pending"&&l.requestedBy===me.id){
+   btn.textContent="Request sent";btn.disabled=true;
+  }else if(l&&l.status==="pending"&&l.requestedBy!==me.id){
+   btn.textContent="Accept their request";
+   btn.onclick=()=>{acceptReq(p);sheetOpen(false);openChat(p)};
+  }else{
+   btn.textContent="Send Friend Request";
+   btn.onclick=async()=>{
+    const linkData={members:[me.id,id].sort(),last:"",lt:Date.now(),status:"pending",requestedBy:me.id};
+    try{await setDoc(doc(db,"chats",p),linkData,{merge:true});links[p]=linkData;toast("Request sent");sheetOpen(false);drawList()}catch(e){toast("Could not send request")}
+   };
   }
-  $("nid").value="";sheetOpen(false);openChat(p);
+  card.appendChild(btn);fb.appendChild(card);
  }catch(e){toast("Could not look up that ID")}
 };
 
